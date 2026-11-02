@@ -1,0 +1,376 @@
+'use client';
+
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  ArrowDown,
+  Play,
+  Check,
+  Copy,
+  RefreshCw,
+  X,
+  ExternalLink,
+} from 'lucide-react';
+import { PLATFORMS, PlatformType } from '@/lib/platforms';
+
+export interface QualityItem {
+  id: string;
+  quality: string;
+  label: string;
+  sublabel: string;
+  url: string;
+  downloadUrl: string;
+  qualityLabel: string;
+  format: string;
+  badge?: string;
+}
+
+export interface VideoData {
+  id: string;
+  originalUrl: string;
+  title: string;
+  author: string;
+  views: string;
+  duration: string;
+  thumbnail: string;
+  platform?: string;
+  isSingleQuality?: boolean;
+  qualityList?: QualityItem[];
+  qualities: {
+    hd: {
+      quality: string;
+      url: string;
+      downloadUrl: string;
+      size: string;
+      format: string;
+    };
+    sd?: {
+      quality: string;
+      url: string;
+      downloadUrl: string;
+      size: string;
+      format: string;
+    };
+    audio?: {
+      quality: string;
+      url: string;
+      downloadUrl: string;
+      size: string;
+      format: string;
+    };
+  };
+}
+
+interface ResultCardProps {
+  data: VideoData;
+  platform?: PlatformType;
+  onReset: () => void;
+  onRecordDownload: (quality: string) => void;
+}
+
+export const ResultCard: React.FC<ResultCardProps> = ({
+  data,
+  platform = 'facebook',
+  onReset,
+  onRecordDownload,
+}) => {
+  const platformConfig = PLATFORMS[platform] || PLATFORMS.facebook;
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [downloadingType, setDownloadingType] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  const handleDownload = (
+    type: string,
+    downloadUrl: string,
+    qualityLabel: string,
+    formatExt: string = 'mp4'
+  ) => {
+    setDownloadingType(type);
+    onRecordDownload(qualityLabel);
+
+    const fallbackDirectUrl =
+      type === 'hd'
+        ? data.qualities.hd.url
+        : type === 'sd'
+        ? data.qualities.sd?.url || data.qualities.hd.url
+        : type === 'audio'
+        ? data.qualities.audio?.url || data.qualities.hd.url
+        : data.qualities.hd.url;
+
+    const directCdnUrl = downloadUrl || fallbackDirectUrl;
+    const isAudio = formatExt.toLowerCase() === 'mp3' || type === 'audio';
+    const safeExt = isAudio ? '.mp3' : formatExt.toLowerCase() === 'webm' ? '.webm' : '.mp4';
+    const cleanTitle = data.title.replace(/[^\w\.-]/g, '_').slice(0, 30) || 'SaveVibe_Media';
+    const targetFilename = `${cleanTitle}_${type}${safeExt}`;
+
+    // Same-origin attachment endpoint for forced download save dialog (zero backend file storage)
+    const proxyDownloadUrl = `/api/download?url=${encodeURIComponent(directCdnUrl)}&filename=${encodeURIComponent(targetFilename)}`;
+
+    const a = document.createElement('a');
+    a.href = proxyDownloadUrl;
+    a.setAttribute('download', targetFilename);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setTimeout(() => {
+      setDownloadingType(null);
+    }, 1500);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(data.originalUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const isTikTokOrSingleQuality = platform === 'tiktok' || data.isSingleQuality || data.platform === 'TikTok';
+
+  const downloadOptions =
+    data.qualityList && data.qualityList.length > 0
+      ? data.qualityList.map((item) => {
+          let mainTitle = '';
+          if (item.id === '2160p') mainTitle = '2160p (4K Ultra HD)';
+          else if (item.id === '1440p') mainTitle = '1440p (2K Quad HD)';
+          else if (item.id === '1080p') mainTitle = '1080p (Full HD)';
+          else if (item.id === '720p') mainTitle = '720p (HD)';
+          else if (item.id === '480p') mainTitle = '480p (SD)';
+          else if (item.id === '360p') mainTitle = '360p (Standard)';
+          else if (item.id === '240p') mainTitle = '240p (Low)';
+          else if (item.id === '144p') mainTitle = '144p (Data Saver)';
+          else if (item.id === 'audio') mainTitle = 'MP3 (Audio Only)';
+          else mainTitle = item.label;
+
+          const formatText = item.format || (item.id === 'audio' ? 'MP3' : 'MP4');
+          let cleanSub = item.sublabel;
+          cleanSub = cleanSub.replace(/^MP\d\s*•?\s*/i, '');
+          cleanSub = cleanSub.replace(/\(([^)]+)\)/, '• $1');
+
+          return {
+            type: item.id,
+            mainTitle,
+            subDetails: `${formatText} • ${cleanSub}`,
+            downloadUrl: item.downloadUrl,
+            qualityLabel: item.qualityLabel,
+            format: item.format,
+          };
+        })
+      : isTikTokOrSingleQuality
+      ? [
+          {
+            type: 'hd',
+            mainTitle: 'Max Quality (No Watermark)',
+            subDetails: 'MP4 • Watermark-Free • High Quality',
+            downloadUrl: data.qualities.hd.downloadUrl,
+            qualityLabel: 'Max Quality without watermark',
+            format: 'MP4',
+          },
+        ]
+      : [
+          {
+            type: 'hd',
+            mainTitle: '1080p (Full HD)',
+            subDetails: `MP4 • High Quality • ${data.qualities.hd.size}`,
+            downloadUrl: data.qualities.hd.downloadUrl,
+            qualityLabel: '1080p HD Video',
+            format: 'MP4',
+          },
+          {
+            type: 'sd',
+            mainTitle: '720p (HD)',
+            subDetails: `MP4 • Standard Quality • ${data.qualities.sd?.size || '720p'}`,
+            downloadUrl: data.qualities.sd?.downloadUrl || '',
+            qualityLabel: '720p SD Video',
+            format: 'MP4',
+          },
+          {
+            type: 'audio',
+            mainTitle: 'MP3 (Audio Only)',
+            subDetails: `MP3 • High Quality Audio • ${data.qualities.audio?.size || '320kbps'}`,
+            downloadUrl: data.qualities.audio?.downloadUrl || '',
+            qualityLabel: 'MP3 Audio Only',
+            format: 'MP3',
+          },
+        ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16, scale: 0.99 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -12, scale: 0.98 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="w-full max-w-xl mx-auto mt-6 p-5 sm:p-7 rounded-2xl bg-white border border-slate-200/80 shadow-[0_8px_30px_rgba(15,23,42,0.06)] text-slate-900 transition-all"
+    >
+      {/* Top Header Row */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider font-sans">
+          Download Quality Selection
+        </span>
+        <button
+          onClick={onReset}
+          className="text-xs font-medium text-slate-500 hover:text-slate-900 flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors font-sans"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Fetch Another
+        </button>
+      </div>
+
+      {/* 1. Video Preview Thumbnail */}
+      <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-950 group shadow-2xs border border-slate-100">
+        <img
+          src={data.thumbnail}
+          alt={data.title}
+          className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500 ease-out"
+          referrerPolicy="no-referrer"
+        />
+
+        {/* Soft overlay */}
+        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/35 transition-colors" />
+
+        {/* Minimalist Centered Semi-Transparent Play Button */}
+        <button
+          onClick={() => setIsPreviewOpen(true)}
+          className="absolute inset-0 flex items-center justify-center focus:outline-none"
+          aria-label="Preview video"
+        >
+          <div className="w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-black/40 backdrop-blur-md border border-white/25 text-white flex items-center justify-center shadow-md group-hover:scale-110 group-hover:bg-black/60 transition-all duration-300">
+            <Play className="w-5 h-5 fill-white ml-0.5 text-white" />
+          </div>
+        </button>
+
+        {/* Duration badge at bottom right */}
+        {data.duration && (
+          <div className="absolute bottom-2.5 right-2.5 bg-black/60 backdrop-blur-sm text-white text-[11px] font-sans px-2 py-0.5 rounded-md font-medium border border-white/10">
+            {data.duration}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Metadata Text (Title, platform name, Creator name) */}
+      <div className="mt-4 mb-5 text-left space-y-1">
+        <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug tracking-tight font-sans">
+          {data.title}
+        </h2>
+        <div className="flex items-center flex-wrap gap-2 text-xs font-sans font-normal">
+          <span className={`font-semibold px-2 py-0.5 rounded-md text-[11px] ${platformConfig.badgeBg}`}>
+            {data.platform || platformConfig.name}
+          </span>
+          <span aria-hidden="true" className="text-slate-300">·</span>
+          <span className="text-slate-600 font-medium">{data.author || 'Creator'}</span>
+          {data.views && (
+            <>
+              <span aria-hidden="true" className="text-slate-300">·</span>
+              <span className="text-slate-500">{data.views}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 3 & 4. Slim, Modern, Clean Download Cards Section */}
+      <div className="space-y-2">
+        {downloadOptions.map((opt) => (
+          <button
+            key={opt.type}
+            onClick={() => handleDownload(opt.type, opt.downloadUrl, opt.qualityLabel, opt.format || 'mp4')}
+            disabled={downloadingType === opt.type}
+            className="w-full group bg-slate-50 hover:bg-slate-100/90 active:bg-slate-200/80 text-slate-900 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-slate-200/80 transition-all duration-200 flex items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 shadow-2xs cursor-pointer"
+          >
+            {/* Left side: Clean Typography - Main Title & Subtitle */}
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="font-bold text-xs sm:text-sm text-slate-800 font-sans tracking-tight truncate">
+                {opt.mainTitle}
+              </span>
+              <span className="text-[11px] text-slate-500 font-normal font-sans mt-0.5 truncate">
+                {opt.subDetails}
+              </span>
+            </div>
+
+            {/* Right side: Minimalist Circular Action Button */}
+            <div className="w-8 h-8 rounded-full bg-slate-900 text-white group-hover:bg-slate-800 flex items-center justify-center shrink-0 transition-colors shadow-2xs">
+              {downloadingType === opt.type ? (
+                <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" />
+              ) : (
+                <ArrowDown className="w-3.5 h-3.5 text-white group-hover:translate-y-0.5 transition-transform" />
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Footer Actions */}
+      <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-sans">
+        <button
+          onClick={handleCopyLink}
+          className="flex items-center gap-1.5 hover:text-slate-900 transition-colors font-medium"
+        >
+          {copiedLink ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-emerald-600 font-medium">Copied to Clipboard!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy Link</span>
+            </>
+          )}
+        </button>
+
+        <a
+          href={data.qualities.hd.url || data.originalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 hover:text-slate-900 transition-colors font-medium text-slate-400 text-[11px]"
+        >
+          <ExternalLink className="w-3 h-3" />
+          <span>Direct Link</span>
+        </a>
+      </div>
+
+      {/* Video Preview Modal */}
+      <AnimatePresence>
+        {isPreviewOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setIsPreviewOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-2xl bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-800"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900">
+                <span className="text-xs sm:text-sm font-medium text-white truncate max-w-md">
+                  {data.title}
+                </span>
+                <button
+                  onClick={() => setIsPreviewOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="aspect-video w-full bg-black relative flex items-center justify-center">
+                <video
+                  src={data.qualities.hd.url}
+                  controls
+                  autoPlay
+                  className="w-full h-full object-contain"
+                  poster={data.thumbnail}
+                >
+                  Your browser does not support HTML video playback.
+                </video>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
